@@ -1,4 +1,4 @@
-﻿Several editorials note that product refresh cadence appears incremental this cycle.
-However, enterprise demand for on-device AI workflows may strengthen upgrade intent in the next 12-18 months.
-Supply chain normalization reduces near-term execution risk.
-FX volatility and antitrust scrutiny remain recurring concerns.
+﻿多篇社论指出，本轮产品更新节奏偏渐进式，短期内爆款创新驱动相对有限。
+但也有观点认为，未来 12-18 个月企业侧对端侧 AI 工作流的需求可能提升换机意愿。
+供应链恢复常态有助于降低近期执行风险。
+汇率波动与反垄断审查仍是需要反复跟踪的核心不确定性。
