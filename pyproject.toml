@@ -1,0 +1,15 @@
+﻿[project]
+name = "stock-editorial-agent"
+version = "0.3.0"
+description = "Single-stock editorial and market data analysis agent"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.40.0",
+  "python-dotenv>=1.0.0",
+  "requests>=2.32.0",
+  "yfinance>=0.2.54"
+]
+
+[project.scripts]
+stock-editorial-agent = "src.analyze:main"
