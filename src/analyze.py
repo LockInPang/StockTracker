@@ -14,18 +14,18 @@ import yfinance as yf
 from dotenv import load_dotenv
 from openai import OpenAI
 
-SYSTEM_PROMPT = """You are a disciplined equity editorial analyst.
-You analyze one stock using BOTH:
-1) editorial/opinion corpus
-2) recent market price behavior
+SYSTEM_PROMPT = """你是一名严谨的股票社论分析师。
+你需要基于以下两类信息联合分析单只股票：
+1) 社论/观点语料
+2) 近期市场价格行为
 
-Rules:
-- Do not fabricate facts that are absent from inputs.
-- Clearly separate facts vs inferences.
-- If editorial narrative conflicts with price action, explicitly discuss divergence.
-- Output valid JSON only following the schema.
+规则：
+- 不得编造输入中不存在的事实。
+- 必须清晰区分“事实”与“推断”。
+- 若社论叙事与价格行为冲突，必须明确讨论分歧。
+- 只输出符合下述结构的合法 JSON。
 
-JSON schema:
+JSON 结构：
 {
   "ticker": "string",
   "overall_stance": "Bullish|Neutral|Bearish|Mixed",
@@ -49,15 +49,15 @@ JSON schema:
 }
 """
 
-USER_TEMPLATE = """Target ticker: {ticker}
+USER_TEMPLATE = """目标股票代码: {ticker}
 
-Editorial corpus:
+社论语料:
 {editorials}
 
-Recent market data summary (JSON):
+近期市场数据摘要（JSON）:
 {market_summary}
 
-Return JSON only.
+只返回 JSON，不要输出其他文本。
 """
 
 
@@ -254,14 +254,26 @@ def fetch_yfinance_prices(ticker: str, from_date: str, to_date: str) -> List[Dic
 
     rows: List[Dict[str, Any]] = []
     for idx, row in df.iterrows():
+        # yfinance may return scalar-like single-element Series for cells;
+        # normalize to plain floats to avoid pandas future warnings.
+        def _to_float(v: Any) -> Optional[float]:
+            if v is None:
+                return None
+            if hasattr(v, "iloc"):
+                try:
+                    v = v.iloc[0]
+                except Exception:
+                    pass
+            return float(v)
+
         rows.append(
             {
                 "Date": idx.strftime("%Y-%m-%d"),
-                "Open": float(row["Open"]),
-                "High": float(row["High"]),
-                "Low": float(row["Low"]),
-                "Close": float(row["Close"]),
-                "Volume": float(row["Volume"]) if row.get("Volume") is not None else None,
+                "Open": _to_float(row["Open"]),
+                "High": _to_float(row["High"]),
+                "Low": _to_float(row["Low"]),
+                "Close": _to_float(row["Close"]),
+                "Volume": _to_float(row.get("Volume")),
             }
         )
     return rows
@@ -291,23 +303,33 @@ def analyze(
 ) -> AnalysisResult:
     client, inferred_model = build_llm_client(provider)
     final_model = model or inferred_model
-
-    response = client.responses.create(
-        model=final_model,
-        input=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": USER_TEMPLATE.format(
-                    ticker=ticker.upper(),
-                    editorials=editorial_text,
-                    market_summary=json.dumps(market_summary, ensure_ascii=False),
-                ),
-            },
-        ],
+    user_content = USER_TEMPLATE.format(
+        ticker=ticker.upper(),
+        editorials=editorial_text,
+        market_summary=json.dumps(market_summary, ensure_ascii=False),
     )
 
-    raw_text = response.output_text.strip()
+    if provider.lower() == "deepseek":
+        # DeepSeek OpenAI-compatible endpoint is widely available for chat.completions.
+        response = client.chat.completions.create(
+            model=final_model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.2,
+        )
+        raw_text = (response.choices[0].message.content or "").strip()
+    else:
+        response = client.responses.create(
+            model=final_model,
+            input=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        raw_text = response.output_text.strip()
+
     parsed = json.loads(raw_text)
     return AnalysisResult(raw_json=parsed)
 
