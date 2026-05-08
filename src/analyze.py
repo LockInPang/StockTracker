@@ -237,7 +237,18 @@ def normalize_yahoo_jp_ticker(ticker: str) -> str:
 
 def fetch_yfinance_prices(ticker: str, from_date: str, to_date: str) -> List[Dict[str, Any]]:
     symbol = normalize_yahoo_jp_ticker(ticker)
-    df = yf.download(symbol, start=from_date, end=to_date, progress=False, auto_adjust=False)
+    try:
+        df = yf.download(symbol, start=from_date, end=to_date, progress=False, auto_adjust=False)
+    except Exception as e:
+        detail = f"{e.__class__.__name__}: {e}"
+        raise MarketDataError(
+            "yfinance request failed. "
+            f"symbol={symbol}, range={from_date}..{to_date}. "
+            f"detail={detail}. "
+            "If you are behind a proxy/firewall, verify access to Yahoo Finance domains "
+            "(query1.finance.yahoo.com/query2.finance.yahoo.com/finance.yahoo.com/fc.yahoo.com) "
+            "or switch to --price-source jquants."
+        ) from e
     if df is None or df.empty:
         raise MarketDataError(f"No yfinance data for {symbol} in {from_date}..{to_date}")
 
@@ -330,7 +341,7 @@ def main() -> None:
     parser.add_argument(
         "--price-source",
         default=os.getenv("PRICE_SOURCE", "yfinance"),
-        help="yfinance (free) or jquants",
+        help="yfinance (free), jquants, or auto (yfinance then jquants fallback)",
     )
     parser.add_argument("--from-date", required=True, help="Market data start date, e.g. 2026-01-01")
     parser.add_argument("--to-date", required=True, help="Market data end date, e.g. 2026-05-01")
@@ -342,8 +353,26 @@ def main() -> None:
         price_rows = fetch_yfinance_prices(args.ticker, args.from_date, args.to_date)
     elif args.price_source.lower() == "jquants":
         price_rows = fetch_jquants_prices(args.ticker, args.from_date, args.to_date)
+    elif args.price_source.lower() == "auto":
+        try:
+            price_rows = fetch_yfinance_prices(args.ticker, args.from_date, args.to_date)
+            print("Price source selected: yfinance")
+        except Exception as yf_err:
+            print("Price source yfinance failed, attempting jquants fallback...")
+            print(f"yfinance error: {yf_err}")
+            try:
+                price_rows = fetch_jquants_prices(args.ticker, args.from_date, args.to_date)
+                print("Price source selected: jquants (fallback)")
+            except Exception as jq_err:
+                raise MarketDataError(
+                    "Both market data sources failed.\n"
+                    f"- yfinance: {yf_err}\n"
+                    f"- jquants: {jq_err}\n"
+                    "Tip: use --price-source jquants with valid JQUANTS_API_KEY/JQUANTS_BEARER_TOKEN "
+                    "if Yahoo domains are blocked by your runtime network."
+                ) from jq_err
     else:
-        raise ValueError("--price-source must be one of: yfinance, jquants")
+        raise ValueError("--price-source must be one of: yfinance, jquants, auto")
     market_summary = make_market_summary(price_rows, args.ticker.upper())
 
     result = analyze(
