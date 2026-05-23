@@ -14,15 +14,17 @@ import yfinance as yf
 from dotenv import load_dotenv
 from openai import OpenAI
 
-SYSTEM_PROMPT = """你是一名严谨的股票社论分析师。
-你需要基于以下两类信息联合分析单只股票：
+SYSTEM_PROMPT = """你是一名严谨的股票社论与市场情绪分析师。
+你需要基于以下三类信息联合分析单只股票：
 1) 社论/观点语料
-2) 近期市场价格行为
+2) 投资者评论/掲示板语料
+3) 近期市场价格行为
 
 规则：
 - 不得编造输入中不存在的事实。
 - 必须清晰区分“事实”与“推断”。
-- 若社论叙事与价格行为冲突，必须明确讨论分歧。
+- 投资者评论只代表用户观点或市场情绪，不得当作事实依据。
+- 若社论叙事、投资者评论与价格行为冲突，必须明确讨论分歧。
 - 只输出符合下述结构的合法 JSON。
 
 JSON 结构：
@@ -32,7 +34,9 @@ JSON 结构：
   "confidence": 0-100,
   "sentiment_score": -100 to 100,
   "price_action_bias": "Bullish|Neutral|Bearish|Mixed",
+  "investor_comment_sentiment": "Bullish|Neutral|Bearish|Mixed|Not Provided",
   "narrative_price_alignment": "Aligned|Partially Aligned|Divergent",
+  "narrative_comment_alignment": "Aligned|Partially Aligned|Divergent|Not Provided",
   "key_thesis": ["string", "..."],
   "major_risks": ["string", "..."],
   "upside_catalysts": ["string", "..."],
@@ -41,6 +45,7 @@ JSON 结构：
   "time_horizon": "Near-term|Medium-term|Long-term|Mixed",
   "fact_vs_inference": {
      "facts_from_editorials": ["string", "..."],
+     "signals_from_investor_comments": ["string", "..."],
      "facts_from_market_data": ["string", "..."],
      "inferences": ["string", "..."]
   },
@@ -53,6 +58,9 @@ USER_TEMPLATE = """目标股票代码: {ticker}
 
 社论语料:
 {editorials}
+
+投资者评论/掲示板语料:
+{comments}
 
 近期市场数据摘要（JSON）:
 {market_summary}
@@ -74,7 +82,9 @@ class AnalysisResult:
             f"- 置信度: **{d.get('confidence', 'N/A')} / 100**",
             f"- 情绪分数: **{d.get('sentiment_score', 'N/A')}** (-100 到 100)",
             f"- 价格行为偏向: **{d.get('price_action_bias', 'N/A')}**",
+            f"- 投资者评论情绪: **{d.get('investor_comment_sentiment', 'N/A')}**",
             f"- 叙事-价格一致性: **{d.get('narrative_price_alignment', 'N/A')}**",
+            f"- 叙事-评论一致性: **{d.get('narrative_comment_alignment', 'N/A')}**",
             f"- 信号质量: **{d.get('signal_quality', 'N/A')}**",
             f"- 时间维度: **{d.get('time_horizon', 'N/A')}**",
             "",
@@ -100,6 +110,9 @@ class AnalysisResult:
         lines.append("\n## 事实 vs 推断")
         lines.append("### 来自社论的事实")
         for item in fvi.get("facts_from_editorials", []):
+            lines.append(f"- {item}")
+        lines.append("### 来自投资者评论的情绪信号")
+        for item in fvi.get("signals_from_investor_comments", []):
             lines.append(f"- {item}")
         lines.append("### 来自行情的事实")
         for item in fvi.get("facts_from_market_data", []):
@@ -299,6 +312,7 @@ def analyze(
     model: Optional[str],
     ticker: str,
     editorial_text: str,
+    comments_text: str,
     market_summary: Dict[str, Any],
 ) -> AnalysisResult:
     client, inferred_model = build_llm_client(provider)
@@ -306,6 +320,7 @@ def analyze(
     user_content = USER_TEMPLATE.format(
         ticker=ticker.upper(),
         editorials=editorial_text,
+        comments=comments_text,
         market_summary=json.dumps(market_summary, ensure_ascii=False),
     )
 
@@ -358,6 +373,11 @@ def main() -> None:
         required=True,
         help="Path to one .txt file or a directory containing multiple .txt editorials",
     )
+    parser.add_argument(
+        "--comments-input",
+        default=None,
+        help="Optional path to Yahoo/comment corpus .txt file or directory",
+    )
     parser.add_argument("--provider", default=os.getenv("LLM_PROVIDER", "openai"), help="openai or deepseek")
     parser.add_argument("--model", default=None, help="Optional override model name")
     parser.add_argument(
@@ -371,6 +391,9 @@ def main() -> None:
     args = parser.parse_args()
 
     editorial_text = load_editorials(Path(args.input))
+    comments_text = "未提供投资者评论语料。"
+    if args.comments_input:
+        comments_text = load_editorials(Path(args.comments_input))
     if args.price_source.lower() == "yfinance":
         price_rows = fetch_yfinance_prices(args.ticker, args.from_date, args.to_date)
     elif args.price_source.lower() == "jquants":
@@ -402,6 +425,7 @@ def main() -> None:
         model=args.model,
         ticker=args.ticker,
         editorial_text=editorial_text,
+        comments_text=comments_text,
         market_summary=market_summary,
     )
     json_path, md_path = save_outputs(result, Path(args.out), args.ticker)
