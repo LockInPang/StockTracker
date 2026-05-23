@@ -38,9 +38,9 @@ class EditorialArticle:
 def build_google_news_rss_url(ticker: str, company_name: str, language: str) -> str:
     search_terms = company_name.strip() or ticker.strip()
     if language == "ja":
-        query = f'{search_terms} {ticker} 株価 OR 決算 OR 見通し'
+        query = f"{search_terms} {ticker} 株価 OR 決算 OR 見通し"
         return f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=ja&gl=JP&ceid=JP:ja"
-    query = f'{search_terms} {ticker} stock OR earnings OR outlook'
+    query = f"{search_terms} {ticker} stock OR earnings OR outlook"
     return f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
 
 

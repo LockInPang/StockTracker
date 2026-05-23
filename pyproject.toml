@@ -15,4 +15,5 @@ dependencies = [
 
 [project.scripts]
 stock-editorial-fetch = "src.fetch_editorials:main"
+stock-yahoo-comments = "src.fetch_yahoo_comments:main"
 stock-editorial-agent = "src.analyze:main"
